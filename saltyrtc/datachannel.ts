@@ -28,6 +28,9 @@ export class SecureDataChannel implements saltyrtc.SecureDataChannel {
             throw new Error('Currently SaltyRTC can only handle data channels ' +
                             'with `binaryType` set to `arraybuffer`.');
         }
+        if (dc.ordered === false) {
+            throw new Error('So far, only ordered data channels are supported.');
+        }
         this.dc = dc;
         this.signaling = signaling;
         this.dc.onmessage = this.onEncryptedMessage;

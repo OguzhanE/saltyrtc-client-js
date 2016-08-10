@@ -97,6 +97,13 @@ export default () => { describe('datachannel', function() {
                 expect(send).toThrowError('Unknown data type. Please pass in an ArrayBuffer or a typed array (e.g. Uint8Array).');
             });
 
+            it('must be ordered', () => {
+                const fakeDc = new FakeDataChannel as RTCDataChannel;
+                fakeDc.ordered = false;
+                const instantiate = () => new SecureDataChannel(fakeDc, this.fakeSignaling);
+                expect(instantiate).toThrowError('So far, only ordered data channels are supported.');
+            });
+
         });
 
     });
