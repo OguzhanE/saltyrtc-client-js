@@ -449,6 +449,31 @@ export default () => { describe('Integration Tests', function() {
             safedc.send(buf);
         });
 
+        it('sending large messages through data channel', async (done) => {
+            let connections: {
+                initiator: RTCPeerConnection,
+                responder: RTCPeerConnection,
+            } = await setupPeerConnection.bind(this)();
+
+            // Create a large message (<16 KiB)
+            const buf = new Uint8Array(nacl.randomBytes(128 * 1024)).buffer;
+
+            // Wrap data channel
+            connections.responder.ondatachannel = (e: RTCDataChannelEvent) => {
+                // The receiver should transparently decrypt received data.
+                e.channel.binaryType = 'arraybuffer';
+                let receiverDc = this.responder.wrapDataChannel(e.channel);
+                receiverDc.onmessage = (e: RTCMessageEvent) => {
+                    expect(new Uint8Array(e.data)).toEqual(new Uint8Array(buf));
+                    done();
+                };
+            };
+            let dc = connections.initiator.createDataChannel('dc2');
+            dc.binaryType = 'arraybuffer';
+            let safedc = this.initiator.wrapDataChannel(dc);
+            safedc.send(buf);
+        });
+
     });
 
 }); }

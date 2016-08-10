@@ -10,6 +10,7 @@
 
 import { Box } from "./keystore";
 import { Signaling } from "./signaling";
+import { Chunkifier, Unchunkifier } from "./chunkifier";
 
 
 /**
@@ -22,6 +23,8 @@ export class SecureDataChannel implements saltyrtc.SecureDataChannel {
     private signaling: Signaling;
     private _onmessage: saltyrtc.MessageEventHandler;
     private logTag = 'SecureDataChannel:';
+
+    public static CHUNK_SIZE = 16000;
 
     constructor(dc: RTCDataChannel, signaling: Signaling) {
         if (dc.binaryType !== 'arraybuffer') {
@@ -64,6 +67,11 @@ export class SecureDataChannel implements saltyrtc.SecureDataChannel {
                             'or a typed array (e.g. Uint8Array).');
         }
         const box: Box = this.signaling.encryptData(buffer, this);
+        const bytes: Uint8Array = box.toUint8Array();
+
+        // Convert to chunks
+        const chunkifier = new Chunkifier(bytes, Chunkifier.CHUNK_SIZE);
+
         this.dc.send(box.toUint8Array());
     }
 

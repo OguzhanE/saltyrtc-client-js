@@ -207,7 +207,7 @@ export class SaltyRTC implements saltyrtc.SaltyRTC {
      */
     public wrapDataChannel(dc: RTCDataChannel): SecureDataChannel {
         if (this.signalingChannel != 'datachannel') {
-            throw new Error('Handover must be finished before wrapping a data channel.')
+            throw new Error('Handover must be finished before wrapping a data channel.');
         }
         return new SecureDataChannel(dc, this.signaling);
     }
