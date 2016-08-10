@@ -4,43 +4,51 @@
  * This is required for now as a workaround because the Chrome implementation
  * does not currently support sending messages larger than 16 KiB:
  * https://webrtc.org/web-apis/chrome/
+ *
+ * The chunkifier returns a list of `Uint8Array` instances. The first bit of
+ * each chunk indicates, whether there are more chunks following (1) or not (0).
+ *
+ * The chunk size includes this byte, so if you want to transfer exactly 10
+ * elements per chunk, choose a chunk size of 11.
  */
 export class Chunkifier {
-    private _array: Uint8Array;
-    private _chunkSize: number;
-    private _chunks: Uint8Array[] = null;
+    private array: Uint8Array;
+    private chunkSize: number;
+    private chunks: Uint8Array[] = null;
 
     constructor(array: Uint8Array, chunkSize: number) {
-        this._array = array;
-        this._chunkSize = chunkSize;
+        if (array.length < 1) {
+            throw new RangeError('Array may not be empty');
+        }
+        if (chunkSize < 2) {
+            throw new RangeError('Chunk size must be larger than 1');
+        }
+        this.array = array;
+        this.chunkSize = chunkSize;
     }
 
-    get chunks(): Uint8Array[] {
-        return this._getChunks();
+    private offset(chunkIndex: number): number {
+        return chunkIndex * (this.chunkSize - 1);
     }
 
-    private _offset(index: number): number {
-        return index * (this._chunkSize - 1);
+    private hasNext(index: number): boolean {
+        return this.offset(index) < this.array.length;
     }
 
-    private _hasNext(index: number): boolean {
-        return this._offset(index) < this._array.length;
-    }
-
-    private _getChunks(): Uint8Array[] {
+    public getChunks(): Uint8Array[] {
         // Generate chunks on demand
-        if (this._chunks === null) {
-            this._chunks = [];
+        if (this.chunks === null) {
+            this.chunks = [];
             let index = 0;
-            while (this._hasNext(index)) {
+            while (this.hasNext(index)) {
                 // More chunks?
-                let offset = this._offset(index);
-                let length = Math.min(this._chunkSize, this._array.length + 1 - offset);
+                let offset = this.offset(index);
+                let length = Math.min(this.chunkSize, this.array.length + 1 - offset);
                 let buffer = new ArrayBuffer(length);
                 let view = new DataView(buffer);
 
                 // Put more chunks indicator into buffer
-                if (this._hasNext(index + 1)) {
+                if (this.hasNext(index + 1)) {
                     view.setUint8(0, 1);
                 } else {
                     view.setUint8(0, 0);
@@ -48,16 +56,16 @@ export class Chunkifier {
 
                 // Add array slice to buffer
                 let array = new Uint8Array(buffer);
-                let end = Math.min(this._offset(index + 1), this._array.length);
-                let chunk = this._array.slice(offset, end);
+                let end = Math.min(this.offset(index + 1), this.array.length);
+                let chunk = this.array.slice(offset, end);
                 array.set(chunk, 1);
 
                 // Add array to list of chunks
-                this._chunks[index] = array;
+                this.chunks[index] = array;
                 index += 1;
             }
         }
-        return this._chunks;
+        return this.chunks;
     }
 }
 
@@ -68,60 +76,62 @@ export class Chunkifier {
  * See `Chunkifier` doc comment for more information.
  */
 export class Unchunkifier {
-    private _events;
-    private _chunks: Uint8Array[];
-    private _length: number = 0;
 
-    constructor(events) {
-        this._events = events;
-        this._reset();
-    }
+    private chunks: Uint8Array[] = [];
+    private length = 0;
+    private done = false;
+    private merged: Uint8Array = null;
 
     /**
-     * Add a chunk.
+     * Add a chunk. Return a boolean indicating whether all chunks have been
+     * processed.
      */
-    add(array: Uint8Array): void {
+    public add(array: Uint8Array): boolean {
+        if (this.done) {
+            throw new Error('Cannot add more chunks, already complete');
+        }
         if (array.length == 0) {
             return;
         }
+
         let view = new DataView(array.buffer);
 
         // Add to list
-        this._chunks.push(array);
-        this._length += (array.length - 1);
+        this.chunks.push(array);
+        this.length += (array.length - 1);
 
         // More chunks?
         let moreChunks = view.getUint8(0);
-        if (moreChunks == 0) {
-            this._done();
-        } else if (moreChunks != 1) {
-            throw 'Invalid chunk received: ' + moreChunks;
+        if (moreChunks === 0) {
+            this.done = true;
+            return true;
+        } else if (moreChunks === 1) {
+            return false;
         }
+        throw new Error('Invalid chunk received: ' + moreChunks);
     }
 
-    /**
-     * Reset the unchunkifier data.
-     */
-    private _reset(): void {
-        this._chunks = [];
-        this._length = 0;
-    }
+    public merge() {
+        // Chunks must be complete
+        if (!this.done) {
+            throw new Error('Chunks not yet complete');
+        }
 
-    private _done() {
-        let message = this._merge();
-        this._reset();
-        this._events.onCompletedMessage(message);
-    }
-
-    private _merge() {
-        let array = new Uint8Array(this._length);
+        // Return cached value if available
+        if (this.merged !== null) {
+            return this.merged;
+        }
 
         // Add all chunks apart from the first byte
+        let array = new Uint8Array(this.length);
         let offset = 0;
-        for (var chunk of this._chunks) {
+        for (var chunk of this.chunks) {
             array.set(chunk.slice(1), offset);
             offset += chunk.length - 1;
         }
+
+        // Cache value
+        this.merged = array;
 
         return array;
     }
